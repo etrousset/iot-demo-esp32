@@ -1,0 +1,6 @@
+[submodule "espmqtt"]
+	path = espmqtt
+	url = git@github.com:tuanpmt/espmqtt.git
+[submodule "components/espmqtt"]
+	path = components/espmqtt
+	url = git@github.com:tuanpmt/espmqtt.git
