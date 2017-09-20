@@ -26,6 +26,20 @@ static const char *kuzzle_response_topic = "Kuzzle/response";
 #define KUZZLE_DOCUMENT_MAX_SIZE 256
 #define KUZZLE_REQUEST_MAX_SIZE 1024
 
+#define PIR_MOTION_SENSOR_GPIO GPIO_NUM_32
+#define PIR_MOTION_SENSOR_GPIO_SEL GPIO_SEL_32
+
+#define BUTTON_GPIO GPIO_NUM_0
+#define BUTTON_GPIO_SEL GPIO_SEL_0
+
+#define LED_GPIO GPIO_NUM_4
+#define LED_GPIO_SEL GPIO_SEL_4
+
+typedef enum kEvent {
+    kEvent_PIRMotion,
+    kEvent_Button
+} kEvent_t;
+
 static const char *create_doc_fmt =
     "{\"index\":\"" KUZZLE_INDEX "\",\"collection\":\"" KUZZLE_COLLECTION "\",\"controller\":\"" KUZZLE_CONTROLLER_DOCUMENT "\",\"action\":\"create\",\"body\":%s}";
 
@@ -129,7 +143,7 @@ void mqtt_data_received(mqtt_client *client, mqtt_event_data_t *event_data)
     ESP_LOGD(TAG, "\tfrom topic: %.*s", event_data->topic_length, event_data->topic);
     ESP_LOGD(TAG, "\tdata size: %u", event_data->data_length);
     ESP_LOGD(TAG, "\tdata: %.*s", event_data->data_length, event_data->data + event_data->data_offset);
-    
+
     /* -- Parse response status -- */
 
     cJSON *result = cJSON_Parse(event_data->data + event_data->data_offset); // cJASON_Parse doesn't need a null terminated string
@@ -137,17 +151,19 @@ void mqtt_data_received(mqtt_client *client, mqtt_event_data_t *event_data)
 
     cJSON *jstatus = cJSON_GetObjectItem(result, "status");
     assert(jstatus != NULL);
-    
-    if(jstatus) {
+
+    if (jstatus)
+    {
         int16_t status_value = jstatus->valueint;
         ESP_LOGD(TAG, "Kuzzle response: status = %d", status_value);
     }
-    else {
+    else
+    {
         ESP_LOGE(TAG, "ERROR: jstatus is NULL!!!!");
     }
     cJSON_Delete(result);
 
-    ESP_LOGD(TAG, LOG_COLOR(LOG_COLOR_PURPLE)"free mem: %d"LOG_RESET_COLOR, esp_get_free_heap_size());
+    ESP_LOGD(TAG, LOG_COLOR(LOG_COLOR_PURPLE) "free mem: %d" LOG_RESET_COLOR, esp_get_free_heap_size());
 }
 
 float read_temperature(void)
@@ -194,19 +210,37 @@ static xQueueHandle gpio_evt_queue = NULL;
 
 static void IRAM_ATTR on_motion_sensor_gpio_isr(void *data)
 {
-    gpio_set_level(GPIO_NUM_4, gpio_get_level(GPIO_NUM_32));
-    xQueueSendToBackFromISR(gpio_evt_queue, &data, NULL);
+    kEvent_t event = kEvent_PIRMotion;
+    gpio_set_level(LED_GPIO, gpio_get_level(PIR_MOTION_SENSOR_GPIO));
+    xQueueSendToBackFromISR(gpio_evt_queue, &event, NULL);
+}
+
+static void IRAM_ATTR on_button_gpio_isr(void *data)
+{
+    kEvent_t event = kEvent_Button;
+    xQueueSendToBackFromISR(gpio_evt_queue, &event, NULL);
 }
 
 static void gpio_motion_sensor_task(void *arg)
 {
-    void *data = NULL;
+    kEvent_t event_type = 0;
     for (;;)
     {
-        if (xQueueReceive(gpio_evt_queue, &data, portMAX_DELAY))
+        if (xQueueReceive(gpio_evt_queue, &event_type, portMAX_DELAY))
         {
-            ESP_LOGI(TAG, "GPIO[%d] intr, val: %d", 32, gpio_get_level(GPIO_NUM_32));
-            kuzzle_publish_data("motion", gpio_get_level(GPIO_NUM_32));
+            switch (event_type)
+            {
+            case kEvent_PIRMotion:
+                ESP_LOGI(TAG, "PIR motion event: val = %d", gpio_get_level(PIR_MOTION_SENSOR_GPIO));
+                kuzzle_publish_data("motion", gpio_get_level(PIR_MOTION_SENSOR_GPIO));
+                break;
+            case kEvent_Button:
+                ESP_LOGI(TAG, "Button event: val = %d", !gpio_get_level(BUTTON_GPIO));
+                kuzzle_publish_data("button", !gpio_get_level(BUTTON_GPIO));
+                break;
+            default:
+                ESP_LOGW(TAG, "Unexpected kEvent");
+            }
         }
     }
 }
@@ -231,34 +265,32 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_wifi_connect());
 
     //create a queue to handle gpio event from isr
-    gpio_evt_queue = xQueueCreate(10, sizeof(uint32_t));
+    gpio_evt_queue = xQueueCreate(10, sizeof(kEvent_t));
     //start gpio task
     xTaskCreate(gpio_motion_sensor_task, "gpio_motion_sensor_task", 2048, NULL, 10, NULL);
 
     ESP_ERROR_CHECK(gpio_install_isr_service(0));
 
     gpio_config_t gpio_conf = {
-        .pin_bit_mask = GPIO_SEL_0 | GPIO_SEL_32,
+        .pin_bit_mask = BUTTON_GPIO_SEL | PIR_MOTION_SENSOR_GPIO_SEL,
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_ENABLE,
         .intr_type = GPIO_INTR_ANYEDGE};
 
     ESP_ERROR_CHECK(gpio_config(&gpio_conf));
-    ESP_ERROR_CHECK(gpio_isr_handler_add(GPIO_NUM_32, on_motion_sensor_gpio_isr, (void*)GPIO_NUM_32));
+    ESP_ERROR_CHECK(gpio_isr_handler_add(PIR_MOTION_SENSOR_GPIO, on_motion_sensor_gpio_isr, (void *)PIR_MOTION_SENSOR_GPIO));
+    ESP_ERROR_CHECK(gpio_isr_handler_add(BUTTON_GPIO, on_button_gpio_isr, (void *)BUTTON_GPIO));
 
-    gpio_set_direction(GPIO_NUM_4, GPIO_MODE_OUTPUT);
-
-    adc1_config_width(ADC_WIDTH_12Bit);
-    adc1_config_channel_atten(ADC1_CHANNEL_5, ADC_ATTEN_6db);
+    gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
 
     while (true)
     {
-        int pushed = !gpio_get_level(GPIO_NUM_0);
+        /*       int pushed = !gpio_get_level(GPIO_NUM_0);
         if (pushed)
         {
             kuzzle_publish_data("temperature", read_temperature()); // FIXME: do something nice (to better handle complementary filter)
-        }
+        }*/
         vTaskDelay(300 / portTICK_PERIOD_MS);
     }
 }
