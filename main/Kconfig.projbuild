@@ -1,10 +1,12 @@
 menu "Kuzzle mqtt client sample"
 
+menu "Wifi AP"
+
 config WIFI_SSID
     string "WiFi SSID"
 	default "myssid"
 	help
-		SSID (network name) for the example to connect to.
+		SSID (network name) for the sensor to connect to.
 
 config WIFI_PASSWORD
     string "WiFi Password"
@@ -13,9 +15,10 @@ config WIFI_PASSWORD
 		WiFi password (WPA or WPA2) for the example to use.
 
 		Can be left blank if the network has no security set.
-
+endmenu
+menu "Firmware OTA"
 config SERVER_IP
-    string "HTTP Server IP"
+    string "Firmware update HTTP Server IP"
 	default "192.168.0.3"
 	help
 		HTTP Server IP to download the image file from.
@@ -23,7 +26,7 @@ config SERVER_IP
 		See example README.md for details.
 
 config SERVER_PORT
-	string "HTTP Server Port"
+	string "Firmware update HTTP Server Port"
 	default "8070"
 	help
 		HTTP Server port to connect to.
@@ -37,5 +40,5 @@ config FW_FILE
 		Should be a file path such as it is reachable
 		through http://SERVER_IP:SERVER_PORT/FW_FILE
 
-
+endmenu
 endmenu

@@ -3,8 +3,8 @@
 #include <sys/socket.h>
 
 #include "esp_log.h"
-#include "esp_system.h"
 #include "esp_ota_ops.h"
+#include "esp_system.h"
 
 #define BUFFSIZE 1024
 #define TEXT_BUFFSIZE 1024
@@ -12,12 +12,10 @@
 #define FW_SERVER_PORT CONFIG_SERVER_PORT
 #define FW_FILENAME CONFIG_FW_FILE
 
-static const char* TAG = "ota";
-static char ota_write_data[BUFFSIZE + 1] = {0};
-static char text[TEXT_BUFFSIZE + 1] = {0};
-static int binary_file_length = 0;
-static int socket_id = -1;
-static char http_request[64] = {0};
+static const char* TAG                     = "ota";
+static char        text[TEXT_BUFFSIZE + 1] = {0};
+static int         socket_id               = -1;
+static char        http_request[64]        = {0};
 
 typedef enum HttpResponseParseState {
     HTTP_STATE_NONE,
@@ -54,7 +52,7 @@ bool connect_fw_server()
 {
     ESP_LOGI(TAG, "Firmware server addr: %s:%s", FW_SERVER_IP, FW_SERVER_PORT);
 
-    int http_connect_flag = -1;
+    int                http_connect_flag = -1;
     struct sockaddr_in sock_info;
 
     socket_id = socket(AF_INET, SOCK_STREAM, 0);
@@ -65,9 +63,9 @@ bool connect_fw_server()
 
     // set connect info
     memset(&sock_info, 0, sizeof(struct sockaddr_in));
-    sock_info.sin_family = AF_INET;
+    sock_info.sin_family      = AF_INET;
     sock_info.sin_addr.s_addr = inet_addr(FW_SERVER_IP);
-    sock_info.sin_port = htons(atoi(FW_SERVER_PORT));
+    sock_info.sin_port        = htons(atoi(FW_SERVER_PORT));
 
     // connect to http server
     http_connect_flag =
@@ -131,10 +129,10 @@ static size_t consume_http_headers(const char* data, size_t data_len)
     return consumed;
 }
 
-void get_data()
+void get_firmware()
 {
-    esp_err_t err = 0;
-    esp_ota_handle_t update_handle = 0;
+    esp_err_t              err              = 0;
+    esp_ota_handle_t       update_handle    = 0;
     const esp_partition_t* update_partition = NULL;
 
     update_partition = esp_ota_get_next_update_partition(NULL);
@@ -164,11 +162,11 @@ void get_data()
 
     ESP_LOGD(TAG, "-- Getting data ----");
 
-    int data_len = 0;
-    const char* data;
-    int body_len = 0;
+    int         data_len     = 0;
+    const char* data         = NULL;
+    int         body_len     = 0;
+    int         received_len = 0;
 
-    int received_len = 0;
     do {
         received_len = recv(socket_id, text, TEXT_BUFFSIZE, 0);
         if (received_len < 0) {
@@ -177,7 +175,7 @@ void get_data()
             return false;
         }
         data_len = received_len;
-        data = text;
+        data     = text;
         ESP_LOGD(TAG, "GET: received %d data", data_len);
 
         // FIXME: Handle the cases where HTTP STATUS/HEADERS would overlap
@@ -199,8 +197,10 @@ void get_data()
             body_len += data_len;
             _log_buffer(data, data_len);
             err = esp_ota_write(update_handle, data, data_len);
-            if(err != ESP_OK) {
-                ESP_LOGE(TAG, "Error while writing firmware chunk: err = 0x%04X", err);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG,
+                         "Error while writing firmware chunk: err = 0x%04X",
+                         err);
             }
         }
 
@@ -208,13 +208,13 @@ void get_data()
     ESP_LOGD(TAG, "Data received: %d", body_len);
 
     err = esp_ota_end(update_handle);
-    if(err != ESP_OK) {
+    if (err != ESP_OK) {
         ESP_LOGE(TAG, "OTA end failed with error: 0x%04x", err);
         return false;
-    } 
+    }
 
     err = esp_ota_set_boot_partition(update_partition);
-    if(err !=  ESP_OK) {
+    if (err != ESP_OK) {
         ESP_LOGE(TAG, "set boot partition failed with error: 0x%04x", err);
         return false;
     }
@@ -227,5 +227,5 @@ void get_data()
 void k_ota_start(void)
 {
     connect_fw_server();
-    get_data();
+    get_firmware();
 }

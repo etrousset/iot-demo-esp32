@@ -21,7 +21,7 @@
 
 static const char* TAG = "Kuzzle_sample";
 
-static const char* kuzzle_request_topic = "Kuzzle/request";
+static const char* kuzzle_request_topic  = "Kuzzle/request";
 static const char* kuzzle_response_topic = "Kuzzle/response";
 
 #define KUZZLE_INDEX "iot"
@@ -68,26 +68,26 @@ void mqtt_data_received(mqtt_client* client, mqtt_event_data_t* event_data);
 
 static mqtt_settings settings = {
     .auto_reconnect = true,
-    .host = "10.34.50.114", // or domain, ex: "google.com",
-    .port = 1883,
-    .client_id = "mqtt_client_id",
-    .username = "",
-    .password = "",
-    .clean_session = 0,
-    .keepalive = 120, // second
+    .host           = "10.34.50.114", // or domain, ex: "google.com",
+    .port           = 1883,
+    .client_id      = "mqtt_client_id",
+    .username       = "",
+    .password       = "",
+    .clean_session  = 0,
+    .keepalive      = 120, // second
     .lwt_topic =
         "", //"/lwt",    // = "" for disable lwt, will don't care other options
-    .lwt_msg = "offline",
-    .lwt_qos = 0,
-    .lwt_retain = 0,
-    .connected_cb = mqtt_connected,
+    .lwt_msg         = "offline",
+    .lwt_qos         = 0,
+    .lwt_retain      = 0,
+    .connected_cb    = mqtt_connected,
     .disconnected_cb = mqtt_disconnected,
-    .subscribe_cb = mqtt_subscribed,
-    .publish_cb = mqtt_published,
-    .data_cb = mqtt_data_received};
+    .subscribe_cb    = mqtt_subscribed,
+    .publish_cb      = mqtt_published,
+    .data_cb         = mqtt_data_received};
 
 static mqtt_client* client = NULL;
-static uint8_t uid[6] = {0};
+static uint8_t      uid[6] = {0};
 
 esp_err_t kuzzle_connect()
 {
@@ -102,7 +102,7 @@ void kuzzle_publish_data(const char* sensor_type, float sensor_value)
         ESP_LOGW(TAG, "MQTT client not initialized yet...")
     } else {
         static char doc_buffer[KUZZLE_DOCUMENT_MAX_SIZE] = {0};
-        static char req_buffer[KUZZLE_REQUEST_MAX_SIZE] = {0};
+        static char req_buffer[KUZZLE_REQUEST_MAX_SIZE]  = {0};
 
         // TODO: Add error handling...
         snprintf(doc_buffer, KUZZLE_DOCUMENT_MAX_SIZE, sensor_body_fmt, uid[0],
@@ -154,10 +154,10 @@ void mqtt_data_received(mqtt_client* client, mqtt_event_data_t* event_data)
 
     /* -- Parse response status -- */
 
-    cJSON* result = cJSON_Parse(event_data->data +
-                                event_data->data_offset); // cJASON_Parse
-                                                          // doesn't need a null
-                                                          // terminated string
+    cJSON* result =
+        cJSON_Parse(event_data->data + event_data->data_offset); // cJASON_Parse
+    // doesn't need a null
+    // terminated string
     assert(result != NULL);
 
     cJSON* jstatus = cJSON_GetObjectItem(result, "status");
@@ -178,7 +178,7 @@ void mqtt_data_received(mqtt_client* client, mqtt_event_data_t* event_data)
 float read_temperature(void)
 {
     static float accu = -1;
-    int val = adc1_get_voltage(ADC1_CHANNEL_5);
+    int          val  = adc1_get_voltage(ADC1_CHANNEL_5);
     if (accu < 0) {
         accu = val;
     } else {
@@ -192,15 +192,15 @@ float read_temperature(void)
 esp_err_t event_handler(void* ctx, system_event_t* event)
 {
     switch (event->event_id) {
-    case SYSTEM_EVENT_STA_GOT_IP: {
-        kuzzle_connect();
-    } break;
-    case SYSTEM_EVENT_STA_DISCONNECTED: {
-        ESP_LOGW(TAG, "Disonnected from AP...reconnecting...");
-        esp_wifi_connect();
-    } break;
-    default:
-        ESP_LOGW(TAG, "event_handler: %d\n", event->event_id);
+        case SYSTEM_EVENT_STA_GOT_IP: {
+            kuzzle_connect();
+        } break;
+        case SYSTEM_EVENT_STA_DISCONNECTED: {
+            ESP_LOGW(TAG, "Disonnected from AP...reconnecting...");
+            esp_wifi_connect();
+        } break;
+        default:
+            ESP_LOGW(TAG, "event_handler: %d\n", event->event_id);
     }
     return ESP_OK;
 }
@@ -226,24 +226,24 @@ static void gpio_motion_sensor_task(void* arg)
     for (;;) {
         if (xQueueReceive(gpio_evt_queue, &event_type, portMAX_DELAY)) {
             switch (event_type) {
-            case kEvent_PIRMotion:
-                ESP_LOGI(TAG, "PIR motion event: val = %d",
-                         gpio_get_level(PIR_MOTION_SENSOR_GPIO));
-                kuzzle_publish_data("motion",
-                                    gpio_get_level(PIR_MOTION_SENSOR_GPIO));
-                break;
-            case kEvent_Button:
-                ESP_LOGI(TAG, "Button event: val = %d",
-                         !gpio_get_level(BUTTON_GPIO));
-                kuzzle_publish_data("button", !gpio_get_level(BUTTON_GPIO));
+                case kEvent_PIRMotion:
+                    ESP_LOGI(TAG, "PIR motion event: val = %d",
+                             gpio_get_level(PIR_MOTION_SENSOR_GPIO));
+                    kuzzle_publish_data("motion",
+                                        gpio_get_level(PIR_MOTION_SENSOR_GPIO));
+                    break;
+                case kEvent_Button:
+                    ESP_LOGI(TAG, "Button event: val = %d",
+                             !gpio_get_level(BUTTON_GPIO));
+                    kuzzle_publish_data("button", !gpio_get_level(BUTTON_GPIO));
 
-                if (gpio_get_level(BUTTON_GPIO)) {
-                    // button is released
-                    k_ota_start();
-                }
-                break;
-            default:
-                ESP_LOGW(TAG, "Unexpected kEvent");
+                    if (gpio_get_level(BUTTON_GPIO)) {
+                        // button is released
+                        k_ota_start();
+                    }
+                    break;
+                default:
+                    ESP_LOGW(TAG, "Unexpected kEvent");
             }
         }
     }
@@ -261,8 +261,8 @@ void app_main(void)
     esp_wifi_get_mac(WIFI_MODE_STA, uid);
 
     ESP_LOGI(TAG, "Connecting to Wifi AP: %s", CONFIG_WIFI_SSID);
-    wifi_config_t sta_config = {.sta = {.ssid = CONFIG_WIFI_SSID,
-                                        .password = CONFIG_WIFI_PASSWORD,
+    wifi_config_t sta_config = {.sta = {.ssid      = CONFIG_WIFI_SSID,
+                                        .password  = CONFIG_WIFI_PASSWORD,
                                         .bssid_set = false}};
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_config));
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -278,10 +278,10 @@ void app_main(void)
 
     gpio_config_t gpio_conf = {.pin_bit_mask =
                                    BUTTON_GPIO_SEL | PIR_MOTION_SENSOR_GPIO_SEL,
-                               .mode = GPIO_MODE_INPUT,
-                               .pull_up_en = GPIO_PULLUP_DISABLE,
+                               .mode         = GPIO_MODE_INPUT,
+                               .pull_up_en   = GPIO_PULLUP_DISABLE,
                                .pull_down_en = GPIO_PULLDOWN_ENABLE,
-                               .intr_type = GPIO_INTR_ANYEDGE};
+                               .intr_type    = GPIO_INTR_ANYEDGE};
 
     ESP_ERROR_CHECK(gpio_config(&gpio_conf));
     ESP_ERROR_CHECK(gpio_isr_handler_add(PIR_MOTION_SENSOR_GPIO,
@@ -294,7 +294,7 @@ void app_main(void)
 
     /* */
     const esp_partition_t* configured = esp_ota_get_boot_partition();
-    const esp_partition_t* running = esp_ota_get_running_partition();
+    const esp_partition_t* running    = esp_ota_get_running_partition();
 
     assert(configured == running); /* fresh from reset, should be running from
                                       configured boot partition */
