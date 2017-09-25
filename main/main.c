@@ -1,12 +1,12 @@
 
-#include "freertos/FreeRTOS.h"
-
 #include "esp_event.h"
 #include "esp_event_loop.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include <string.h>
 
 #include "nvs_flash.h"
 
@@ -19,19 +19,33 @@
 
 #include "k_ota.h"
 
+static const uint8_t v_major = 1;
+static const uint8_t v_minor = 0;
+static const uint8_t v_patch = 1;
+
 static const char* TAG = "Kuzzle_sample";
+
+#define DEVICE_NAME "k-sensor"
+#define REQ_ID_FW_UPDATE "fw_update"
+
+// -- Kuzzle specific definitions --
 
 static const char* kuzzle_request_topic  = "Kuzzle/request";
 static const char* kuzzle_response_topic = "Kuzzle/response";
 
-#define KUZZLE_INDEX "iot"
-#define KUZZLE_COLLECTION "sensors"
+#define K_INDEX "iot"
+#define K_SENSOR_COLLECTION "sensors"
+#define K_FW_UPDATES_COLLECTION "fw_updates"
 
-#define KUZZLE_CONTROLLER_REALTIME "realtime"
-#define KUZZLE_CONTROLLER_DOCUMENT "document"
+#define K_CONTROLLER_REALTIME "realtime"
+#define K_CONTROLLER_DOCUMENT "document"
 
-#define KUZZLE_DOCUMENT_MAX_SIZE 256
-#define KUZZLE_REQUEST_MAX_SIZE 1024
+#define K_DOCUMENT_MAX_SIZE 256
+#define K_REQUEST_MAX_SIZE 1024
+
+#define K_STATUS_NO_ERROR 200
+
+// -- Hardware definition --
 
 #define PIR_MOTION_SENSOR_GPIO GPIO_NUM_32
 #define PIR_MOTION_SENSOR_GPIO_SEL GPIO_SEL_32
@@ -45,17 +59,25 @@ static const char* kuzzle_response_topic = "Kuzzle/response";
 typedef enum kEvent { kEvent_PIRMotion, kEvent_Button } kEvent_t;
 
 static const char* create_doc_fmt =
-    "{\"index\":\"" KUZZLE_INDEX "\",\"collection\":\"" KUZZLE_COLLECTION
-    "\",\"controller\":\"" KUZZLE_CONTROLLER_DOCUMENT
+    "{\"index\":\"" K_INDEX "\",\"collection\":\"" K_SENSOR_COLLECTION
+    "\",\"controller\":\"" K_CONTROLLER_DOCUMENT
     "\",\"action\":\"create\",\"body\":%s}";
 
 static const char* sensor_body_fmt = "{\"sensor_id\":\"%02X%02X%02X%02X%02X%"
                                      "02X\",\"type\":\"%s\",\"value\":\"%."
                                      "02f\"}";
 
+static const char* get_fw_update_req_fmt =
+    "{\"index\":\"" K_INDEX "\",\"collection\":\"" K_FW_UPDATES_COLLECTION
+    "\",\"controller\":\"" K_CONTROLLER_DOCUMENT
+    "\",\"action\":\"search\",\"requestId\":\"" REQ_ID_FW_UPDATE "\",\"body\":"
+    "{\"size\": 1,\"query\":{\"match\" :{\"target.keyword\":"
+    "\"" DEVICE_NAME "\"}},\"sort\":{\"_kuzzle_info.createdAt\":{\"order\":"
+    "\"desc\"}}}}";
+
 #if 0
 static const char *subscribe_fmt =
-    "{\"index\":\"" KUZZLE_INDEX "\",\"collection\":\"" KUZZLE_COLLECTION "\",\"controller\":\"" KUZZLE_CONTROLLER_REALTIME "\",\"action\":\"subscribe\",\"body\":%s}";
+    "{\"index\":\"" K_INDEX "\",\"collection\":\"" K_SENSOR_COLLECTION "\",\"controller\":\"" K_CONTROLLER_REALTIME "\",\"action\":\"subscribe\",\"body\":%s}";
 #endif
 
 void mqtt_connected(mqtt_client* client, mqtt_event_data_t* event_data);
@@ -96,26 +118,136 @@ esp_err_t kuzzle_connect()
     return ESP_OK;
 }
 
+/**
+ * @brief version_is_greater
+ *
+ * @return true only if version number from args is strictly greater
+ * than version of the running firmware
+ */
+bool version_is_greater(uint8_t major, uint8_t minor, uint8_t patch)
+{
+    if (v_major < major)
+        return true;
+    else if (v_major == major) {
+        if (v_minor < minor)
+            return true;
+        else if (v_minor == minor) {
+            if (v_patch < patch)
+                return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * @brief kuzzle_check_for_update
+ *
+ * Check with the back-end if a newer version of the firmware
+ * is available for download
+ */
+void kuzzle_check_for_update()
+{
+    if (client == NULL) {
+        ESP_LOGW(TAG, "MQTT client not initialized yet...")
+    } else {
+        ESP_LOGD(TAG, "Publishing msg: %s", get_fw_update_req_fmt);
+        mqtt_publish(client, kuzzle_request_topic, get_fw_update_req_fmt,
+                     strlen(get_fw_update_req_fmt), 0, 0);
+    }
+}
+
 void kuzzle_publish_data(const char* sensor_type, float sensor_value)
 {
     if (client == NULL) {
         ESP_LOGW(TAG, "MQTT client not initialized yet...")
     } else {
-        static char doc_buffer[KUZZLE_DOCUMENT_MAX_SIZE] = {0};
-        static char req_buffer[KUZZLE_REQUEST_MAX_SIZE]  = {0};
+        static char doc_buffer[K_DOCUMENT_MAX_SIZE] = {0};
+        static char req_buffer[K_REQUEST_MAX_SIZE]  = {0};
 
         // TODO: Add error handling...
-        snprintf(doc_buffer, KUZZLE_DOCUMENT_MAX_SIZE, sensor_body_fmt, uid[0],
+        snprintf(doc_buffer, K_DOCUMENT_MAX_SIZE, sensor_body_fmt, uid[0],
                  uid[1], uid[2], uid[3], uid[4], uid[5], sensor_type,
                  sensor_value);
 
         // TODO: Add error handling...
-        snprintf(req_buffer, KUZZLE_REQUEST_MAX_SIZE, create_doc_fmt,
-                 doc_buffer);
+        snprintf(req_buffer, K_REQUEST_MAX_SIZE, create_doc_fmt, doc_buffer);
 
         ESP_LOGD(TAG, "Publishing msg: %s", req_buffer);
         mqtt_publish(client, kuzzle_request_topic, req_buffer,
                      strlen(req_buffer), 0, 0);
+    }
+}
+
+void kuzzle_on_response(cJSON* jresponse)
+{
+    cJSON* jrequestid = cJSON_GetObjectItem(jresponse, "requestId");
+    assert(jrequestid != NULL);
+    assert(jrequestid->type == cJSON_String);
+
+    cJSON* jstatus = cJSON_GetObjectItem(jresponse, "status");
+    assert(jstatus != NULL);
+
+    int16_t status_value = jstatus->valueint;
+
+    if (jstatus) {
+        ESP_LOGD(TAG, "Kuzzle response: status = %d", status_value);
+    } else {
+        ESP_LOGE(TAG, "ERROR: jstatus is NULL!!!!");
+    }
+
+    if (status_value == K_STATUS_NO_ERROR) {
+        if (strcmp(REQ_ID_FW_UPDATE, jrequestid->valuestring) == 0) {
+            ESP_LOGD(TAG, "response to fw_update req");
+            // -- received response from fw_update request -- //
+            cJSON* jresult = cJSON_GetObjectItem(jresponse, "result");
+            cJSON* jtotal  = cJSON_GetObjectItem(jresult, "total");
+            assert(jtotal->type == cJSON_Number);
+
+            if (jtotal->valueint < 1) {
+                ESP_LOGW(TAG, "No info found about available firmware");
+            } else {
+                cJSON* jhits   = cJSON_GetObjectItem(jresult, "hits");
+                cJSON* fw_info = cJSON_GetObjectItem(
+                    cJSON_GetArrayItem(jhits, 0), "_source");
+                cJSON* jversion = cJSON_GetObjectItem(fw_info, "version");
+
+                uint8_t fw_v_major =
+                            cJSON_GetObjectItem(jversion, "major")->valueint,
+                        fw_v_minor =
+                            cJSON_GetObjectItem(jversion, "minor")->valueint,
+                        fw_v_patch =
+                            cJSON_GetObjectItem(jversion, "patch")->valueint;
+
+                if (version_is_greater(fw_v_major, fw_v_minor, fw_v_patch)) {
+                    ESP_LOGD(
+                        TAG,
+                        "A newer version of the firmware is available %u.%u.%u",
+                        fw_v_major, fw_v_minor, fw_v_patch);
+
+                    // -- get info about firmware dl loaction --
+                    cJSON* jdl = cJSON_GetObjectItem(fw_info, "dl");
+
+                    char* dl_ip   = cJSON_GetObjectItem(jdl, "ip")->valuestring;
+                    char* dl_port = cJSON_GetObjectItem(jdl, "port")->valuestring;
+                    char* dl_path = cJSON_GetObjectItem(jdl, "path")->valuestring;
+
+                    k_ota_start(dl_ip, dl_port, dl_path);
+
+                } else {
+                    ESP_LOGD(TAG, "Current firmware %u.%u.%u is up to date",
+                             v_major, v_minor, v_patch);
+                }
+#if 0
+                fw_v_major = char* out = cJSON_Print(fw_info);
+                ESP_LOGI(TAG, "Fw info: %s", out);
+                free(out);
+#endif
+            }
+
+            // cJSON *jversion = cJSON_GetObjectItem("")
+
+        } else {
+        }
     }
 }
 
@@ -154,22 +286,16 @@ void mqtt_data_received(mqtt_client* client, mqtt_event_data_t* event_data)
 
     /* -- Parse response status -- */
 
-    cJSON* result =
+    cJSON* jresponse =
         cJSON_Parse(event_data->data + event_data->data_offset); // cJASON_Parse
     // doesn't need a null
     // terminated string
-    assert(result != NULL);
+    assert(jresponse != NULL);
 
-    cJSON* jstatus = cJSON_GetObjectItem(result, "status");
-    assert(jstatus != NULL);
+    // TODO: if topic is "kuzzle/response"
+    kuzzle_on_response(jresponse);
 
-    if (jstatus) {
-        int16_t status_value = jstatus->valueint;
-        ESP_LOGD(TAG, "Kuzzle response: status = %d", status_value);
-    } else {
-        ESP_LOGE(TAG, "ERROR: jstatus is NULL!!!!");
-    }
-    cJSON_Delete(result);
+    cJSON_Delete(jresponse);
 
     ESP_LOGD(TAG, LOG_COLOR(LOG_COLOR_PURPLE) "free mem: %d" LOG_RESET_COLOR,
              esp_get_free_heap_size());
@@ -235,11 +361,18 @@ static void gpio_motion_sensor_task(void* arg)
                 case kEvent_Button:
                     ESP_LOGI(TAG, "Button event: val = %d",
                              !gpio_get_level(BUTTON_GPIO));
-                    kuzzle_publish_data("button", !gpio_get_level(BUTTON_GPIO));
+
+                    // TODO: re enable button to post event?
+
+                    // kuzzle_publish_data("button",
+                    // !gpio_get_level(BUTTON_GPIO));
 
                     if (gpio_get_level(BUTTON_GPIO)) {
                         // button is released
-                        k_ota_start();
+                        ESP_LOGI(TAG, "Check for firmware update...");
+                        kuzzle_check_for_update();
+                        // k_ota_start(); TODO: start OTA once we know there is
+                        // a newer firmware available
                     }
                     break;
                 default:
@@ -302,6 +435,8 @@ void app_main(void)
              configured->type, configured->subtype, configured->address);
     ESP_LOGI(TAG, "Running partition type %d subtype %d (offset 0x%08x)",
              running->type, running->subtype, running->address);
+
+    ESP_LOGI(TAG, ">>> Firmware version: %u.%u.%u <<<", v_major, v_minor, v_patch);
 
     while (true) {
         vTaskDelay(300 / portTICK_PERIOD_MS);

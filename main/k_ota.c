@@ -1,3 +1,4 @@
+#include <freertos/FreeRTOS.h>
 #include <netdb.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -8,34 +9,42 @@
 
 #define BUFFSIZE 1024
 #define TEXT_BUFFSIZE 1024
-#define FW_SERVER_IP CONFIG_SERVER_IP
-#define FW_SERVER_PORT CONFIG_SERVER_PORT
-#define FW_FILENAME CONFIG_FW_FILE
 
-static const char* TAG                     = "ota";
+static char* _dl_ip   = NULL;
+static char* _dl_port = NULL;
+static char* _dl_path = NULL;
+
+static const char* TAG                     = "[OTA]";
 static char        text[TEXT_BUFFSIZE + 1] = {0};
 static int         socket_id               = -1;
 static char        http_request[64]        = {0};
 
 typedef enum HttpResponseParseState {
     HTTP_STATE_NONE,
+    HTTP_STATE_ERROR,
     HTTP_STATE_STATUS,
     HTTP_STATE_HEADERS,
     HTTP_STATE_BODY
 } HttpResponseParseState;
 
+typedef enum OTAState {
+    OTA_STATE_IDLE,        // Ready to begin an OTA
+    OTA_STATE_IN_PROGESS   // OTA in progress
+} OTAState;
+
 static HttpResponseParseState http_state = HTTP_STATE_NONE;
+static OTAState _ota_state = OTA_STATE_IDLE;
 
 static void _log_buffer(const char* data, size_t len)
 {
-    for (int i = 0; i < len; i++) {
-        ets_printf("%02x ", *(data + i));
-        if (i % 16 == 7) {
-            ets_printf(" ");
-        } else if (i % 16 == 15)
-            ets_printf("\n");
-    }
-    ets_printf("\n");
+    /*    for (int i = 0; i < len; i++) {
+            ets_printf("%02x ", *(data + i));
+            if (i % 16 == 7) {
+                ets_printf(" ");
+            } else if (i % 16 == 15)
+                ets_printf("\n");
+        }
+        ets_printf("\n");*/
 }
 
 static void _fatal_error(void)
@@ -45,12 +54,17 @@ static void _fatal_error(void)
         close(socket_id);
         socket_id = -1;
     }
+
+    free(_dl_ip), _dl_ip     = NULL;
+    free(_dl_port), _dl_port = NULL;
+    free(_dl_path), _dl_path = NULL;
+
     http_state = HTTP_STATE_NONE;
 }
 
 bool connect_fw_server()
 {
-    ESP_LOGI(TAG, "Firmware server addr: %s:%s", FW_SERVER_IP, FW_SERVER_PORT);
+    ESP_LOGI(TAG, "Firmware server addr: %s:%s", _dl_ip, _dl_port);
 
     int                http_connect_flag = -1;
     struct sockaddr_in sock_info;
@@ -64,8 +78,8 @@ bool connect_fw_server()
     // set connect info
     memset(&sock_info, 0, sizeof(struct sockaddr_in));
     sock_info.sin_family      = AF_INET;
-    sock_info.sin_addr.s_addr = inet_addr(FW_SERVER_IP);
-    sock_info.sin_port        = htons(atoi(FW_SERVER_PORT));
+    sock_info.sin_addr.s_addr = inet_addr(_dl_ip);
+    sock_info.sin_port        = htons(atoi(_dl_port));
 
     // connect to http server
     http_connect_flag =
@@ -87,11 +101,19 @@ bool connect_fw_server()
  */
 static size_t consume_http_status(const char* data, size_t data_len)
 {
-    size_t i;
+    size_t   i;
+    uint16_t status = 0;
     for (i = 0; data[i] != '\n' && i < data_len; i++)
         ;
     ESP_LOGD(TAG, "HTTP statut: %.*s", i - 1, data);
-    http_state = HTTP_STATE_HEADERS;
+
+    status = atoi(data + 9); // strlen("HTTP/1.x ") == 9
+    if (status != 200) {
+        http_state = HTTP_STATE_ERROR;
+        ESP_LOGE(TAG, "Got HTTP status = %d", status);
+    } else {
+        http_state = HTTP_STATE_HEADERS;
+    }
     return i + 1;
 }
 
@@ -149,8 +171,8 @@ void get_firmware()
 
     // -- GET request -- //
 
-    sprintf(http_request, "GET /%s HTTP/1.1\r\nHost: %s:%s \r\n\r\n",
-            FW_FILENAME, FW_SERVER_IP, FW_SERVER_PORT);
+    sprintf(http_request, "GET /%s HTTP/1.1\r\nHost: %s:%s \r\n\r\n", _dl_path,
+            _dl_ip, _dl_port);
 
     if (write(socket_id, http_request, strlen(http_request) + 1) < 0) {
         ESP_LOGE(TAG, "Failed to write http GET request");
@@ -176,7 +198,7 @@ void get_firmware()
         }
         data_len = received_len;
         data     = text;
-        ESP_LOGD(TAG, "GET: received %d data", data_len);
+        ESP_LOGD(TAG, "GET: received %4d data", data_len);
 
         // FIXME: Handle the cases where HTTP STATUS/HEADERS would overlap
         // several data buffers...
@@ -199,33 +221,66 @@ void get_firmware()
             err = esp_ota_write(update_handle, data, data_len);
             if (err != ESP_OK) {
                 ESP_LOGE(TAG,
-                         "Error while writing firmware chunk: err = 0x%04X",
+                         "Error while writing firmware chunk: esp_err = 0x%04X",
                          err);
+                http_state = HTTP_STATE_ERROR;
             }
         }
-
+        if (http_state == HTTP_STATE_ERROR) {
+            break;
+        }
+        ESP_LOGD(TAG, "free mem: %d", esp_get_free_heap_size());
     } while (received_len > 0);
-    ESP_LOGD(TAG, "Data received: %d", body_len);
 
-    err = esp_ota_end(update_handle);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "OTA end failed with error: 0x%04x", err);
-        return false;
+    if (http_state != HTTP_STATE_ERROR) {
+        ESP_LOGD(TAG, "Data received: %d", body_len);
+
+        err = esp_ota_end(update_handle);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "OTA OTA end failed with error: 0x%04x", err);
+            _fatal_error();
+            return false;
+        }
+
+        err = esp_ota_set_boot_partition(update_partition);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "set boot partition failed with error: 0x%04x", err);
+            _fatal_error();
+            return false;
+        }
+
+        ESP_LOGI(TAG, "rebooting on new firmware...");
+        esp_restart();
+        return true; // should never be called
+    } else {
+        ESP_LOGE(TAG, "Error during firmware download...")
+        _fatal_error();
     }
-
-    err = esp_ota_set_boot_partition(update_partition);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "set boot partition failed with error: 0x%04x", err);
-        return false;
-    }
-
-    ESP_LOGI(TAG, "rebooting on new firmware...");
-    esp_restart();
-    return true; // should never be called
+    return false;
 }
 
-void k_ota_start(void)
+static void _ota_task(void* data)
 {
-    connect_fw_server();
-    get_firmware();
+    ESP_LOGD(TAG, "OTA Task <<<<");
+    _ota_state = OTA_STATE_IN_PROGESS;
+
+    if (connect_fw_server())
+        get_firmware();
+
+    free(_dl_ip), _dl_ip     = NULL;
+    free(_dl_port), _dl_port = NULL;
+    free(_dl_path), _dl_path = NULL;
+    ESP_LOGD(TAG, "OTA Task >>>>");
+    _ota_state = OTA_STATE_IDLE;
+    vTaskDelete(NULL);
+}
+
+void k_ota_start(char* dl_ip, char* dl_port, char* dl_path)
+{
+    _dl_ip   = strdup(dl_ip);
+    _dl_port = strdup(dl_port);
+    _dl_path = strdup(dl_path);
+
+    if (_ota_state == OTA_STATE_IDLE)
+        xTaskCreate(_ota_task, "ota_task", 2048, NULL, tskIDLE_PRIORITY, NULL);
 }

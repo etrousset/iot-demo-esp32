@@ -13,3 +13,6 @@ IndentWidth: 4
 AlignConsecutiveAssignments: true
 AlignConsecutiveDeclarations: true
 IndentCaseLabels: true
+
+AlignEscapedNewlinesLeft: true
+AlignTrailingComments: true
