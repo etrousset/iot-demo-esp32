@@ -1,0 +1,25 @@
+{
+  // See https://go.microsoft.com/fwlink/?LinkId=733558
+  // for the documentation about the tasks.json format
+  "version": "2.0.0",
+  "tasks": [
+    {
+      
+      "taskName": "flash",
+      "type": "shell",
+      "command": "make app-flash",
+      "group": "build"
+    },
+    {
+
+      "taskName": "app",
+      "type": "shell",
+      "command": "make app",
+
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    }
+  ]
+}
