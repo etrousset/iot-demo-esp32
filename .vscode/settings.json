@@ -14,5 +14,7 @@
     },
     "editor.tabSize": 2,
     "editor.wordSeparators": "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?_",
-    "clang-format.executable": "clang-format-4.0"
+    "clang-format.executable": "clang-format-4.0",
+
+    "bracketPairColorizer.contextualParsing": true
 }

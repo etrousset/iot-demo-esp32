@@ -28,23 +28,25 @@ typedef enum HttpResponseParseState {
 } HttpResponseParseState;
 
 typedef enum OTAState {
-    OTA_STATE_IDLE,        // Ready to begin an OTA
-    OTA_STATE_IN_PROGESS   // OTA in progress
+    OTA_STATE_IDLE,      // Ready to begin an OTA
+    OTA_STATE_IN_PROGESS // OTA in progress
 } OTAState;
 
 static HttpResponseParseState http_state = HTTP_STATE_NONE;
-static OTAState _ota_state = OTA_STATE_IDLE;
+static OTAState               _ota_state = OTA_STATE_IDLE;
 
 static void _log_buffer(const char* data, size_t len)
 {
-    /*    for (int i = 0; i < len; i++) {
-            ets_printf("%02x ", *(data + i));
-            if (i % 16 == 7) {
-                ets_printf(" ");
-            } else if (i % 16 == 15)
-                ets_printf("\n");
-        }
-        ets_printf("\n");*/
+#if 0
+    for (int i = 0; i < len; i++) {
+        ets_printf("%02x ", *(data + i));
+        if (i % 16 == 7) {
+            ets_printf(" ");
+        } else if (i % 16 == 15)
+            ets_printf("\n");
+    }
+    ets_printf("\n");
+#endif
 }
 
 static void _fatal_error(void)
@@ -201,7 +203,7 @@ void get_firmware()
         ESP_LOGD(TAG, "GET: received %4d data", data_len);
 
         // FIXME: Handle the cases where HTTP STATUS/HEADERS would overlap
-        // several data buffers...
+        // several data buffers... /!\
 
         if (http_state == HTTP_STATE_STATUS) {
             size_t l = consume_http_status(text, data_len);
