@@ -34,7 +34,7 @@ static const char* kuzzle_request_topic  = "Kuzzle/request";
 static const char* kuzzle_response_topic = "Kuzzle/response";
 
 #define K_INDEX "iot"
-#define K_SENSOR_COLLECTION "sensors"
+#define K_SENSOR_COLLECTION "devices"
 #define K_FW_UPDATES_COLLECTION "fw_updates"
 
 #define K_CONTROLLER_REALTIME "realtime"
@@ -63,7 +63,7 @@ static const char* create_doc_fmt =
     "\",\"controller\":\"" K_CONTROLLER_DOCUMENT
     "\",\"action\":\"create\",\"body\":%s}";
 
-static const char* sensor_body_fmt = "{\"sensor_id\":\"%02X%02X%02X%02X%02X%"
+static const char* sensor_body_fmt = "{\"device_id\":\"%02X%02X%02X%02X%02X%"
                                      "02X\",\"type\":\"%s\",\"value\":\"%."
                                      "02f\"}";
 
@@ -424,17 +424,6 @@ void app_main(void)
                                          (void*)BUTTON_GPIO));
 
     gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
-
-    /* */
-    const esp_partition_t* configured = esp_ota_get_boot_partition();
-    const esp_partition_t* running    = esp_ota_get_running_partition();
-
-    assert(configured == running); /* fresh from reset, should be running from
-                                      configured boot partition */
-    ESP_LOGI(TAG, "Boot partition type %d subtype %d (offset 0x%08x)",
-             configured->type, configured->subtype, configured->address);
-    ESP_LOGI(TAG, "Running partition type %d subtype %d (offset 0x%08x)",
-             running->type, running->subtype, running->address);
 
     ESP_LOGI(TAG, ">>> Firmware version: %u.%u.%u <<<", v_major, v_minor, v_patch);
 
