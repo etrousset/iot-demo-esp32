@@ -1,6 +1,7 @@
 #include <freertos/FreeRTOS.h>
-#include <netdb.h>
 #include <string.h>
+
+#include "netdb.h"
 #include <sys/socket.h>
 
 #include "esp_log.h"
@@ -49,6 +50,12 @@ static void _log_buffer(const char* data, size_t len)
 #endif
 }
 
+/**
+ * @brief _fatal_error
+ *
+ * @details Called when an error occurs during firmware update
+ *          Free every allocated resources
+ */
 static void _fatal_error(void)
 {
     ESP_LOGE(TAG, "Failed to download/apply firmware update");
@@ -64,6 +71,11 @@ static void _fatal_error(void)
     http_state = HTTP_STATE_NONE;
 }
 
+/**
+ * @brief connect_fw_server
+ *
+ * @return true if everything goes smoothly, false if an error occured
+ */
 bool connect_fw_server()
 {
     ESP_LOGI(TAG, "Firmware server addr: %s:%s", _dl_ip, _dl_port);
@@ -139,7 +151,7 @@ static size_t consume_http_single_header(const char* data, size_t data_len)
 
 /**
 * @brief consume_http_status
-* return: consumer data
+* return: consumed data
 */
 static size_t consume_http_headers(const char* data, size_t data_len)
 {
@@ -153,6 +165,12 @@ static size_t consume_http_headers(const char* data, size_t data_len)
     return consumed;
 }
 
+/**
+ * @brief get_firmware
+ *
+ * @details Download the firmware and write it on the next OTA partition
+ *          Reboot on the new firmware if no error occured
+ */
 void get_firmware()
 {
     esp_err_t              err              = 0;
@@ -202,8 +220,9 @@ void get_firmware()
         data     = text;
         ESP_LOGD(TAG, "GET: received %4d data", data_len);
 
-        // FIXME: Handle the cases where HTTP STATUS/HEADERS would overlap
-        // several data buffers... /!\
+        /* FIXME: Handle the cases where HTTP STATUS/HEADERS would overlap
+         *  several data buffers... /!\
+         * */
 
         if (http_state == HTTP_STATE_STATUS) {
             size_t l = consume_http_status(text, data_len);
@@ -261,6 +280,12 @@ void get_firmware()
     return false;
 }
 
+/**
+ * @brief _ota_task
+ *
+ * @details The FreeRTOS task that runs the firmware download/updage OTA
+ * @param data:  unesed
+ */
 static void _ota_task(void* data)
 {
     ESP_LOGD(TAG, "OTA Task <<<<");
