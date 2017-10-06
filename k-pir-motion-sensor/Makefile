@@ -3,6 +3,7 @@
 # project subdirectory.
 #
 
+EXTRA_COMPONENT_DIRS += $(PROJECT_PATH)/../components
 PROJECT_NAME := k-sensor-1.0.0
 
 include $(IDF_PATH)/make/project.mk
