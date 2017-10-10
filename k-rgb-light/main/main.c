@@ -26,7 +26,6 @@ static const uint8_t v_major = FW_VERSION_MAJOR;
 static const uint8_t v_minor = FW_VERSION_MINOR;
 static const uint8_t v_patch = FW_VERSION_PATCH;
 
-
 #define DEVICE_TYPE "k-rgb-light"
 
 static const char* TAG = DEVICE_TYPE;
@@ -335,7 +334,7 @@ void app_main(void)
     */
 
     ESP_LOGI(TAG, ">>> Firmware version: %u.%u.%u <<<  git commit: %s", v_major, v_minor, v_patch, FW_VERSION_COMMIT);
-    ESP_LOGD(TAG, LOG_BOLD(LOG_COLOR_CYAN)"Device ID = "K_DEVICE_ID_FMT, K_DEVICE_ID_ARGS(uid));
+    ESP_LOGD(TAG, LOG_BOLD(LOG_COLOR_CYAN) "Device ID = " K_DEVICE_ID_FMT, K_DEVICE_ID_ARGS(uid));
 
     _setup_light();
 
