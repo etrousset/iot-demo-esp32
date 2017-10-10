@@ -1,0 +1,13 @@
+espmqtt/include/mqtt.h
+espmqtt/include/mqtt_config.h
+espmqtt/include/mqtt_msg.h
+espmqtt/include/ringbuf.h
+espmqtt/mqtt.c
+espmqtt/mqtt_msg.c
+espmqtt/ringbuf.c
+
+kuzzle-esp32/include/kuzzle.h
+kuzzle-esp32/kuzzle.c
+
+kuzzle-esp32/include/k-ota.h
+kuzzle-esp32/k-ota.c

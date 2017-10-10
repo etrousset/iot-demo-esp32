@@ -1,0 +1,14 @@
+espmqtt/include
+kuzzle-esp32/include
+
+$IDF_PATH/components/log/include
+$IDF_PATH/components/esp32/include
+$IDF_PATH/components/freertos/include
+$IDF_PATH/components/app_update/include
+$IDF_PATH/components/json/include
+
+../xtensa-esp32-elf/xtensa-esp32-elf/include/
+../xtensa-esp32-elf/lib/gcc/xtensa-esp32-elf/5.2.0/include/
+
+../k-rgb-light/build/include
+

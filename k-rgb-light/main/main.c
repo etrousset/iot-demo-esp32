@@ -17,38 +17,28 @@
 #include "cJSON.h"
 #include "mqtt.h"
 
-#include "k_ota.h"
+#include "k-ota.h"
+#include "kuzzle.h"
+
+#include "sdkconfig.h"
 
 static const uint8_t v_major = FW_VERSION_MAJOR;
 static const uint8_t v_minor = FW_VERSION_MINOR;
 static const uint8_t v_patch = FW_VERSION_PATCH;
 
-static const char* TAG = "Kuzzle_sample";
 
-#define K_TARGET_NAME "k-rgb-light"
-#define REQ_ID_FW_UPDATE "fw_update"
-#define REQ_ID_SUBSCRIBE_STATE "sub_state"
-#define REQ_ID_SUBSCRIBE_FW_UPDATE "subfw_update"
+#define DEVICE_TYPE "k-rgb-light"
 
-// -- Kuzzle specific definitions --
+static const char* TAG = DEVICE_TYPE;
 
-static const char* KUZZLE_REQUEST_TOPIC  = "Kuzzle/request";
-static const char* KUZZLE_RESPONSE_TOPIC = "Kuzzle/response";
+void kuzzle_check_for_fw_update(cJSON* jfwdoc);
+void kuzzle_on_light_state_update(cJSON* jresponse);
 
-#define K_INDEX "iot"
-#define K_SENSOR_COLLECTION "devices"
-#define K_FW_UPDATES_COLLECTION "fw_updates"
-
-#define K_CONTROLLER_REALTIME "realtime"
-#define K_CONTROLLER_DOCUMENT "document"
-
-#define K_DEVICE_ID_FMT "%02X%02X%02X%02X%02X%02X"
-#define K_DEVICE_ID_ARGS(device_id) device_id[0], device_id[1], device_id[2], device_id[3], device_id[4], device_id[5]
-
-#define K_DOCUMENT_MAX_SIZE 256
-#define K_REQUEST_MAX_SIZE 1024
-
-#define K_STATUS_NO_ERROR 200
+static kuzzle_settings_t _k_settings = {.host                                 = "10.34.50.114",
+                                        .port                                 = 1883,
+                                        .device_type                          = DEVICE_TYPE,
+                                        .on_fw_update_notification            = kuzzle_check_for_fw_update,
+                                        .on_device_state_changed_notification = kuzzle_on_light_state_update};
 
 #define LEDC_MAX_PWM 8190
 
@@ -75,71 +65,13 @@ typedef struct light_state {
 static light_state_t _light_state = {.r = 0xFF, .g = 0xFF, .b = 0xFF, .on = true};
 
 // -- publish --
-static const char* create_doc_fmt = "{\"index\":\"" K_INDEX "\",\"collection\":\"" K_SENSOR_COLLECTION
-                                    "\",\"controller\":\"" K_CONTROLLER_DOCUMENT "\",\"action\":\"create\",\"body\":%s}";
 
 static const char* light_body_fmt =
     "{\"device_id\":\"" K_DEVICE_ID_FMT "\",\"type\":\"%s\",\"state\":{ \"r\": %d, \"g\": %d, \"b\": %d, \"on\": %s}}";
 
-// -- subscribe --
-static const char* subscribe_req_fmt = "{\"index\":\"" K_INDEX "\",\"collection\":\"%s\",\"controller\":\"" K_CONTROLLER_REALTIME
-                                       "\",\"action\":\"subscribe\",\"requestId\":\"%s\",\"body\":%s}";
-
-static const char* subscribe_state_fmt      = "{\"equals\":{\"device_id\": \"" K_DEVICE_ID_FMT "\"}}";
-static const char* subscribe_fw_updates_fmt = "{\"equals\":{\"target\": \"%s\"}}";
-
-// -- query latest available firmware --
-static const char* get_fw_update_req_fmt =
-    "{\"index\":\"" K_INDEX "\",\"collection\":\"" K_FW_UPDATES_COLLECTION "\",\"controller\":\"" K_CONTROLLER_DOCUMENT
-    "\",\"action\":\"search\",\"requestId\":\"" REQ_ID_FW_UPDATE "\",\"body\":"
-    "{\"size\": 1,\"query\":{\"match\" :{\"target.keyword\":"
-    "\"" K_TARGET_NAME "\"}},\"sort\":{\"_kuzzle_info.createdAt\":{\"order\":"
-    "\"desc\"}}}}";
-
-#if 0
-static const char *subscribe_fmt =
-    "{\"index\":\"" K_INDEX "\",\"collection\":\"" K_SENSOR_COLLECTION "\",\"controller\":\"" K_CONTROLLER_REALTIME "\",\"action\":\"subscribe\",\"body\":%s}";
-#endif
-
-static void mqtt_connected(mqtt_client* client, mqtt_event_data_t* event_data);
-static void mqtt_disconnected(mqtt_client* client, mqtt_event_data_t* event_data);
-
-static void mqtt_kuzzle_response_subscribed(mqtt_client* client, mqtt_event_data_t* event_data);
-static void mqtt_published(mqtt_client* client, mqtt_event_data_t* event_data);
-
-static void mqtt_data_received(mqtt_client* client, mqtt_event_data_t* event_data);
-
 static uint8_t uid[6] = {0};
 
-static mqtt_settings settings = {.auto_reconnect  = true,
-                                 .host            = "10.34.50.114", // or domain, ex: "google.com",
-                                 .port            = 1883,
-                                 .client_id       = {0},
-                                 .username        = "",
-                                 .password        = "",
-                                 .clean_session   = 0,
-                                 .keepalive       = 120, // second
-                                 .lwt_topic       = "",  //"/lwt",    // = "" for disable lwt, will don't care other options
-                                 .lwt_msg         = "offline",
-                                 .lwt_qos         = 0,
-                                 .lwt_retain      = 0,
-                                 .connected_cb    = mqtt_connected,
-                                 .disconnected_cb = mqtt_disconnected,
-                                 .subscribe_cb    = mqtt_kuzzle_response_subscribed,
-                                 .publish_cb      = mqtt_published,
-                                 .data_cb         = mqtt_data_received};
-
-static mqtt_client* client = NULL;
-
-static void kuzzle_check_for_fw_update(cJSON* jfwdoc);
 static void _update_light();
-
-esp_err_t kuzzle_connect()
-{
-    ESP_LOGD(TAG, "Starting MQTT client");
-    client = mqtt_start(&settings);
-    return ESP_OK;
-}
 
 /**
  * @brief version_is_greater
@@ -162,107 +94,20 @@ bool version_is_greater(uint8_t major, uint8_t minor, uint8_t patch)
     return false;
 }
 
-/**
- * @brief kuzzle_check_for_update
- *
- * Check with the back-end if a newer version of the firmware
- * is available for download
- */
-void kuzzle_query_for_fw_update()
+static void _publish_light_state()
 {
-    if (client == NULL) {
-        ESP_LOGW(TAG, "MQTT client not initialized yet...")
-    } else {
-        ESP_LOGD(TAG, "Publishing msg: %s", get_fw_update_req_fmt);
-        mqtt_publish(client, KUZZLE_REQUEST_TOPIC, get_fw_update_req_fmt, strlen(get_fw_update_req_fmt), 0, 0);
-    }
-}
+    static char device_state_body[K_DOCUMENT_MAX_SIZE] = {0};
 
-/**
- * @brief kuzzle_publish_state
- */
-void kuzzle_publish_state()
-{
-    if (client == NULL) {
-        ESP_LOGW(TAG, "MQTT client not initialized yet...")
-    } else {
-        static char doc_buffer[K_DOCUMENT_MAX_SIZE] = {0};
-        static char req_buffer[K_REQUEST_MAX_SIZE]  = {0};
-
-        // TODO: Add error handling...
-        snprintf(doc_buffer,
-                 K_DOCUMENT_MAX_SIZE,
-                 light_body_fmt,
-                 K_DEVICE_ID_ARGS(uid),
-                 "light",
-                 _light_state.r,
-                 _light_state.g,
-                 _light_state.b,
-                 _light_state.on ? "true" : "false");
-
-        // TODO: Add error handling...
-        snprintf(req_buffer, K_REQUEST_MAX_SIZE, create_doc_fmt, doc_buffer);
-
-        ESP_LOGD(TAG, "Publishing msg: %s", req_buffer);
-        mqtt_publish(client, KUZZLE_REQUEST_TOPIC, req_buffer, strlen(req_buffer), 0, 0);
-    }
-}
-
-/**
- * @brief kuzzle_subscribe_to_state
- *
- * Subscribe to own state to update from cloud
- */
-void kuzzle_subscribe_to_state()
-{
-    ESP_LOGD(TAG, "Subscribing to own state");
-
-    if (client == NULL) {
-        ESP_LOGW(TAG, "MQTT client not initialized yet...")
-    } else {
-        static char query_buffer[K_DOCUMENT_MAX_SIZE] = {0};
-        static char req_buffer[K_REQUEST_MAX_SIZE]    = {0};
-
-        // TODO: Add error handling...
-        snprintf(query_buffer, K_DOCUMENT_MAX_SIZE, subscribe_state_fmt, K_DEVICE_ID_ARGS(uid));
-
-        // TODO: Add error handling...
-        snprintf(req_buffer, K_REQUEST_MAX_SIZE, subscribe_req_fmt, K_SENSOR_COLLECTION, REQ_ID_SUBSCRIBE_STATE, query_buffer);
-
-        ESP_LOGD(TAG, "Publishing msg: %s", req_buffer);
-        mqtt_publish(client, KUZZLE_REQUEST_TOPIC, req_buffer, strlen(req_buffer), 0, 0);
-    }
-}
-
-void kuzzle_subscribe_to_fw_update()
-{
-    ESP_LOGD(TAG, "Subscribing to fw update");
-
-    if (client == NULL) {
-        ESP_LOGW(TAG, "MQTT client not initialized yet...")
-    } else {
-        static char query_buffer[K_DOCUMENT_MAX_SIZE] = {0};
-        static char req_buffer[K_REQUEST_MAX_SIZE]    = {0};
-
-        // TODO: Add error handling...
-        snprintf(query_buffer, K_DOCUMENT_MAX_SIZE, subscribe_fw_updates_fmt, K_TARGET_NAME);
-
-        // TODO: Add error handling...
-        snprintf(
-            req_buffer, K_REQUEST_MAX_SIZE, subscribe_req_fmt, K_FW_UPDATES_COLLECTION, REQ_ID_SUBSCRIBE_FW_UPDATE, query_buffer);
-
-        ESP_LOGD(TAG, "Publishing msg: %s", req_buffer);
-        mqtt_publish(client, KUZZLE_REQUEST_TOPIC, req_buffer, strlen(req_buffer), 0, 0);
-    }
-}
-
-void kuzzle_on_fw_update_pushed(cJSON* jresponse)
-{
-    ESP_LOGD(TAG, "Firmware update pushed from Kuzzle");
-
-    cJSON* jresult = cJSON_GetObjectItem(jresponse, "result");
-    cJSON* jfwdoc  = cJSON_GetObjectItem(jresult, "_source");
-    kuzzle_check_for_fw_update(jfwdoc);
+    snprintf(device_state_body,
+             K_DOCUMENT_MAX_SIZE,
+             light_body_fmt,
+             K_DEVICE_ID_ARGS(uid),
+             "light",
+             _light_state.r,
+             _light_state.g,
+             _light_state.b,
+             _light_state.on ? "true" : "false");
+    kuzzle_device_state_pub(uid, device_state_body);
 }
 
 /**
@@ -333,7 +178,7 @@ void kuzzle_check_for_fw_update(cJSON* jfwdoc)
 
         // -- get info about firmware dl loaction --
         cJSON* jdl = cJSON_GetObjectItem(jfwdoc, "dl");
-        if(jdl == NULL)
+        if (jdl == NULL)
             ESP_LOGE(TAG, "Couldn't find object 'dl'");
 
         char* dl_ip   = cJSON_GetObjectItem(jdl, "ip")->valuestring;
@@ -357,169 +202,6 @@ void kuzzle_check_for_fw_update(cJSON* jfwdoc)
 }
 
 /**
- * @brief kuzzle_on_response
- * @param jresponse the cJSON of Kuzzle response
- */
-void kuzzle_on_response(cJSON* jresponse)
-{
-    cJSON* jrequestid = cJSON_GetObjectItem(jresponse, "requestId");
-    assert(jrequestid != NULL);
-    assert(jrequestid->type == cJSON_String);
-
-    cJSON* jstatus = cJSON_GetObjectItem(jresponse, "status");
-    assert(jstatus != NULL);
-
-    int16_t status_value = jstatus->valueint;
-
-    if (jstatus) {
-        ESP_LOGD(TAG, "Kuzzle response: status = %d", status_value);
-    } else {
-        ESP_LOGE(TAG, "ERROR: jstatus is NULL!!!!");
-    }
-
-    if (status_value == K_STATUS_NO_ERROR) {
-        if (strcmp(REQ_ID_FW_UPDATE, jrequestid->valuestring) == 0) {
-            ESP_LOGD(TAG, "response to fw_update req");
-            // -- received response from fw_update request -- //
-            cJSON* jresult = cJSON_GetObjectItem(jresponse, "result");
-            cJSON* jtotal  = cJSON_GetObjectItem(jresult, "total");
-            assert(jtotal->type == cJSON_Number);
-
-            if (jtotal->valueint < 1) {
-                ESP_LOGW(TAG, "No info found about available firmware");
-            } else {
-                cJSON* jhits  = cJSON_GetObjectItem(jresult, "hits");
-                cJSON* jfwdoc = cJSON_GetObjectItem(cJSON_GetArrayItem(jhits, 0), "_source");
-
-                kuzzle_check_for_fw_update(jfwdoc);
-            }
-        } else if (strcmp(REQ_ID_SUBSCRIBE_STATE, jrequestid->valuestring) == 0) {
-            ESP_LOGD(TAG, LOG_COLOR(LOG_COLOR_GREEN) "Received response from STATE sub");
-
-            cJSON* jresult  = cJSON_GetObjectItem(jresponse, "result");
-            cJSON* jchannel = cJSON_GetObjectItem(jresult, "channel");
-
-            assert(jchannel->type == cJSON_String);
-
-            mqtt_subscribe(client, jchannel->valuestring, 0);
-        } else if (strcmp(REQ_ID_SUBSCRIBE_FW_UPDATE, jrequestid->valuestring) == 0) {
-            ESP_LOGD(TAG, LOG_COLOR(LOG_COLOR_GREEN) "Received response from FW UPDATES sub");
-
-            cJSON* jresult  = cJSON_GetObjectItem(jresponse, "result");
-            cJSON* jchannel = cJSON_GetObjectItem(jresult, "channel");
-
-            assert(jchannel->type == cJSON_String);
-
-            mqtt_subscribe(client, jchannel->valuestring, 0);
-        }
-    }
-}
-
-/**
- * @brief mqtt_connected
- * @param client
- * @param event_data
- */
-void mqtt_connected(mqtt_client* client, mqtt_event_data_t* event_data)
-{
-    ESP_LOGD(TAG, "MQTT: connected");
-
-    mqtt_subscribe(client, KUZZLE_RESPONSE_TOPIC, 0);
-}
-
-/**
- * @brief mqtt_disconnected
- * @param client
- * @param event_data
- */
-void mqtt_disconnected(mqtt_client* client, mqtt_event_data_t* event_data) { ESP_LOGD(TAG, "MQTT: disconnected"); }
-
-/**
- * @brief mqtt_kuzzle_light_state_subscribed
- * @param client
- * @param event_data
- */
-void mqtt_kuzzle_light_fw_updates_subscribed(mqtt_client* client, mqtt_event_data_t* event_data)
-{
-    ESP_LOGD(TAG, "MQTT: subscribed to fw updates");
-}
-/**
- * @brief mqtt_kuzzle_light_state_subscribed
- * @param client
- * @param event_data
- */
-void mqtt_kuzzle_light_state_subscribed(mqtt_client* client, mqtt_event_data_t* event_data)
-{
-    ESP_LOGD(TAG, "MQTT: subscribed to light state");
-
-    client->settings->subscribe_cb = mqtt_kuzzle_light_fw_updates_subscribed;
-    kuzzle_subscribe_to_fw_update();
-}
-
-/**
- * @brief mqtt_kuzzle_response_subscribed
- * @param client
- * @param event_data
- */
-void mqtt_kuzzle_response_subscribed(mqtt_client* client, mqtt_event_data_t* event_data)
-{
-    ESP_LOGD(TAG, "MQTT: subscribed to topic: %s", KUZZLE_RESPONSE_TOPIC);
-    // -- publish current state --
-    //    kuzzle_publish_state();
-    // -- subscribe to own state --
-
-    client->settings->subscribe_cb = mqtt_kuzzle_light_state_subscribed;
-    kuzzle_subscribe_to_state();
-}
-
-/**
- * @brief mqtt_published
- * @param client
- * @param event_data
- */
-void mqtt_published(mqtt_client* client, mqtt_event_data_t* event_data) { ESP_LOGD(TAG, "MQTT: published"); }
-
-/**
- * @brief mqtt_data_received
- * @param client
- * @param event_data
- */
-void mqtt_data_received(mqtt_client* client, mqtt_event_data_t* event_data)
-{
-    ESP_LOGD(TAG, "MQTT: data received:");
-
-    ESP_LOGD(TAG, "\tfrom topic: %.*s", event_data->topic_length, event_data->topic);
-    ESP_LOGD(TAG, "\tdata: %.*s", event_data->data_length, event_data->data + event_data->data_offset);
-
-    /* -- Parse response status -- */
-
-    cJSON* jresponse = cJSON_Parse(event_data->data + event_data->data_offset); // cJASON_Parse
-    // doesn't need a null
-    // terminated string
-    assert(jresponse != NULL);
-
-    if (event_data->topic_length == strlen(KUZZLE_RESPONSE_TOPIC) &&
-        strncmp(event_data->topic, KUZZLE_RESPONSE_TOPIC, event_data->topic_length) == 0) {
-        kuzzle_on_response(jresponse);
-    } else {
-        // switch according to the source collection to see if its a FW_UPDATE or STATE change nofitication
-        // As we subscribe only once per collection, we can use the collection name to identify the source
-        // of the notification
-
-        cJSON* jcollection = cJSON_GetObjectItem(jresponse, "collection");
-
-        if (strcmp(jcollection->valuestring, K_SENSOR_COLLECTION) == 0)
-            kuzzle_on_light_state_update(jresponse);
-        else if (strcmp(jcollection->valuestring, K_FW_UPDATES_COLLECTION) == 0)
-            kuzzle_on_fw_update_pushed(jresponse);
-    }
-
-    cJSON_Delete(jresponse);
-
-    ESP_LOGD("MEM", LOG_BOLD(LOG_COLOR_PURPLE) "free mem: %d", esp_get_free_heap_size());
-}
-
-/**
  * @brief event_handler
  * @param ctx
  * @param event
@@ -529,7 +211,8 @@ esp_err_t event_handler(void* ctx, system_event_t* event)
 {
     switch (event->event_id) {
         case SYSTEM_EVENT_STA_GOT_IP: {
-            kuzzle_connect();
+            memcpy(_k_settings.device_id, uid, sizeof(k_device_id_t));
+            kuzzle_init(&_k_settings);
         } break;
         case SYSTEM_EVENT_STA_DISCONNECTED: {
             ESP_LOGW(TAG, "Disonnected from AP...reconnecting...");
@@ -598,11 +281,7 @@ static void _setup_light()
 static void _update_light()
 {
     uint32_t r_duty = _light_state.on ? (LEDC_MAX_PWM * _light_state.r) / 0xFF : 0;
-#ifdef AWOX_DEMO_BUG
-    uint32_t g_duty = 0;
-#else
     uint32_t g_duty = _light_state.on ? (LEDC_MAX_PWM * _light_state.g) / 0xFF : 0;
-#endif
     uint32_t b_duty = _light_state.on ? (LEDC_MAX_PWM * _light_state.b) / 0xFF : 0;
 
     ledc_set_fade_with_time(LEDC_HIGH_SPEED_MODE, RED_PWM_CHANNEL, r_duty, LEDC_TRANSITION_TIME);
@@ -630,7 +309,6 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 
     esp_wifi_get_mac(WIFI_MODE_STA, uid);
-    snprintf(settings.client_id, CONFIG_MQTT_MAX_CLIENT_LEN, K_DEVICE_ID_FMT, K_DEVICE_ID_ARGS(uid));
 
     ESP_LOGI(TAG, "Connecting to Wifi AP: %s", CONFIG_WIFI_SSID);
     wifi_config_t sta_config = {.sta = {.ssid = CONFIG_WIFI_SSID, .password = CONFIG_WIFI_PASSWORD, .bssid_set = false}};
@@ -657,6 +335,7 @@ void app_main(void)
     */
 
     ESP_LOGI(TAG, ">>> Firmware version: %u.%u.%u <<<  git commit: %s", v_major, v_minor, v_patch, FW_VERSION_COMMIT);
+    ESP_LOGD(TAG, LOG_BOLD(LOG_COLOR_CYAN)"Device ID = "K_DEVICE_ID_FMT, K_DEVICE_ID_ARGS(uid));
 
     _setup_light();
 
