@@ -13,14 +13,16 @@
 #include "driver/adc.h"
 #include "driver/gpio.h"
 #include "driver/i2c.h"
+#include "esp_adc_cal.h"
+#include "soc/adc_channel.h"
 
 #include "cJSON.h"
 #include "mqtt.h"
 
-#include "si7021.h"
-
 #include "k-ota.h"
 #include "kuzzle.h"
+#include "si7021.h"
+#include "tept5700.h"
 
 static const uint8_t v_major = FW_VERSION_MAJOR;
 static const uint8_t v_minor = FW_VERSION_MINOR;
@@ -41,6 +43,9 @@ static kuzzle_settings_t _k_settings = {.host                                 = 
 
 // -- Hardware definition -- //
 
+#define LIGHT_SENSOR_RL 10000.f // Load resistor in ohms
+#define LIGHT_SENSOR_V 5.f      // Collector
+
 #define PIR_MOTION_SENSOR_GPIO GPIO_NUM_32
 #define PIR_MOTION_SENSOR_GPIO_SEL GPIO_SEL_32
 
@@ -54,7 +59,7 @@ typedef enum kEvent { kEvent_PIRMotion, kEvent_Button } kEvent_t;
 
 static const char* sensor_body_fmt = "{\"motion\":%s}";
 
-static uint8_t uid[6] = {0};
+static k_device_id_t uid = {0};
 
 typedef struct {
     bool motion;
@@ -139,7 +144,7 @@ void kuzzle_check_for_fw_update(cJSON* jfwdoc)
 float read_temperature(void)
 {
     static float accu = -1;
-    int          val  = adc1_get_voltage(ADC1_CHANNEL_5);
+    int          val  = adc1_get_raw(ADC1_CHANNEL_5);
     if (accu < 0) {
         accu = val;
     } else {
@@ -216,6 +221,25 @@ static void gpio_motion_sensor_task(void* arg)
 }
 
 /**
+ * @brief measur_lux
+ *
+ * Compute Lux from measured voltage and given resistor
+ * u=ri, i = u/r
+ *
+ * @param adc_chan
+ * @param resistor
+ * @param adc_char
+ * @return
+ */
+float measure_lux(adc1_channel_t adc_chan, esp_adc_cal_characteristics_t* adc_char)
+{
+    float VRl_V = adc1_to_voltage(ADC1_GPIO32_CHANNEL, adc_char) / 1000.f;
+    float lux   = tept5700_v_to_lux(VRl_V, 25);
+
+    return lux;
+}
+
+/**
  * @brief app_main
  *
  * Main run loop/task
@@ -235,12 +259,12 @@ void app_main(void)
     ESP_LOGI(TAG, "Connecting to Wifi AP: %s", CONFIG_WIFI_SSID);
     wifi_config_t sta_config = {.sta = {.ssid = CONFIG_WIFI_SSID, .password = CONFIG_WIFI_PASSWORD, .bssid_set = false}};
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-    ESP_ERROR_CHECK(esp_wifi_connect());
+    //    ESP_ERROR_CHECK(esp_wifi_start());
+    //    ESP_ERROR_CHECK(esp_wifi_connect());
 
     ESP_LOGI(TAG, ">>> Firmware version: %u.%u.%u <<<  git commit: %s", v_major, v_minor, v_patch, FW_VERSION_COMMIT);
     ESP_LOGI(TAG, LOG_BOLD(LOG_COLOR_CYAN) "Device ID = " K_DEVICE_ID_FMT, K_DEVICE_ID_ARGS(uid));
-
+#if 0
     // create a queue to handle gpio event from isr
     gpio_evt_queue = xQueueCreate(10, sizeof(kEvent_t));
     // start gpio task
@@ -259,15 +283,30 @@ void app_main(void)
     ESP_ERROR_CHECK(gpio_isr_handler_add(BUTTON_GPIO, on_button_gpio_isr, (void*)BUTTON_GPIO));
 
     gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
+#endif
+
+    // Configure ADC
+    adc1_config_width(ADC_WIDTH_12Bit);
+    adc1_config_channel_atten(ADC1_GPIO32_CHANNEL, ADC_ATTEN_11db);
+    adc1_config_channel_atten(ADC1_GPIO35_CHANNEL, ADC_ATTEN_11db);
+
+    // Calculate ADC characteristics i.e. gain and offset factors
+    esp_adc_cal_characteristics_t characteristics;
+    esp_adc_cal_get_characteristics(1106, ADC_ATTEN_11db, ADC_WIDTH_12Bit, &characteristics);
 
     si7021_init(I2C_NUM_0, GPIO_NUM_17, GPIO_NUM_16);
     si7021_check_id();
 
+    tept5700_init(LIGHT_SENSOR_V, LIGHT_SENSOR_RL);
+
+    //    ESP_ERROR_CHECK(adc2_vref_to_gpio(GPIO_NUM_25));
     while (true) {
+        // Read ADC and obtain result in mV
+        measure_lux(ADC1_GPIO32_CHANNEL, &characteristics);
         float rh = si7021_measure_relative_humidity();
-        float t = si7021_read_temperature();
+        float t  = si7021_read_temperature();
 
         ESP_LOGD(TAG, "t = %.02f°C, RH = %.02f%%", t, rh);
-        vTaskDelay(300 / portTICK_PERIOD_MS);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 }

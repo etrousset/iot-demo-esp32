@@ -1,6 +1,7 @@
 main
 $IDF_PATH/components/log/include
 $IDF_PATH/components/esp32/include
+$IDF_PATH/components/soc/esp32/include
 $IDF_PATH/components/app_update/include
 $IDF_PATH/components/freertos/include
 ../xtensa-esp32-elf/xtensa-esp32-elf/include/
@@ -11,9 +12,13 @@ $IDF_PATH/components/lwip/include/lwip/posix
 
 $IDF_PATH/components/nvs_flash/include
 $IDF_PATH/components/driver/include
+$IDF_PATH/components/esp_adc_cal/include
 $IDF_PATH/components/json/include
+$IDF_PATH/components/newlib/include
+
 $IDF_PATH/components/bt/include
 $IDF_PATH/components/bt/bluedroid/api/include
+
 
 build/include
 ../components/espmqtt/include
