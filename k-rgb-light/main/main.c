@@ -32,16 +32,18 @@ static const char* TAG = DEVICE_TYPE;
 
 void kuzzle_check_for_fw_update(cJSON* jfwdoc);
 void kuzzle_on_light_state_update(cJSON* jresponse);
+void on_kuzzle_connected();
 
-static kuzzle_settings_t _k_settings = {.host                                 = "10.34.50.114",
+static kuzzle_settings_t _k_settings = {.host                                 = "iot.uat.kuzzle.io",
                                         .port                                 = 1883,
                                         .device_type                          = DEVICE_TYPE,
                                         .on_fw_update_notification            = kuzzle_check_for_fw_update,
-                                        .on_device_state_changed_notification = kuzzle_on_light_state_update};
-
-#define LEDC_MAX_PWM 8190
+                                        .on_device_state_changed_notification = kuzzle_on_light_state_update,
+                                        .on_connected                         = on_kuzzle_connected};
 
 // -- Hardware definition --
+#define LEDC_MAX_PWM 8190
+
 #define LEDC_TRANSITION_TIME 250 // ms
 
 #define RED_PWM_CHANNEL LEDC_CHANNEL_0
@@ -66,7 +68,7 @@ static light_state_t _light_state = {.r = 0xFF, .g = 0xFF, .b = 0xFF, .on = true
 // -- publish --
 
 static const char* light_body_fmt =
-    "{\"device_id\":\"" K_DEVICE_ID_FMT "\",\"type\":\"%s\",\"state\":{ \"r\": %d, \"g\": %d, \"b\": %d, \"on\": %s}}";
+    "{ \"r\": %d, \"g\": %d, \"b\": %d, \"on\": %s}";
 
 static uint8_t uid[6] = {0};
 
@@ -100,14 +102,14 @@ static void _publish_light_state()
     snprintf(device_state_body,
              K_DOCUMENT_MAX_SIZE,
              light_body_fmt,
-             K_DEVICE_ID_ARGS(uid),
-             "light",
              _light_state.r,
              _light_state.g,
              _light_state.b,
              _light_state.on ? "true" : "false");
-    kuzzle_device_state_pub(uid, device_state_body);
+    kuzzle_device_state_pub(device_state_body);
 }
+
+void on_kuzzle_connected() { _publish_light_state(); }
 
 /**
  * @brief kuzzle_on_light_state_update
@@ -290,6 +292,8 @@ static void _update_light()
     ledc_fade_start(LEDC_HIGH_SPEED_MODE, RED_PWM_CHANNEL, LEDC_FADE_NO_WAIT);
     ledc_fade_start(LEDC_HIGH_SPEED_MODE, GREEN_PWM_CHANNEL, LEDC_FADE_NO_WAIT);
     ledc_fade_start(LEDC_HIGH_SPEED_MODE, BLUE_PWM_CHANNEL, LEDC_FADE_NO_WAIT);
+
+    _publish_light_state(); // Publish new complete state
 }
 
 /**
