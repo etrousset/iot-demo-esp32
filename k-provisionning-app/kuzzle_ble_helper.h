@@ -1,0 +1,4 @@
+#ifndef KUZZLE_BLE_HELPER_H
+#define KUZZLE_BLE_HELPER_H
+
+#endif // KUZZLE_BLE_HELPER_H
