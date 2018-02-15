@@ -1,6 +1,6 @@
 [submodule "components/espmqtt"]
 	path = components/espmqtt
-	url = https://github.com/tuanpmt/espmqtt.git
+	url = https://github.com/etrousset/espmqtt.git
 [submodule "components/kuzzle-esp32"]
 	path = components/kuzzle-esp32
 	url = https://github.com/etrousset/kuzzle-esp32.git
