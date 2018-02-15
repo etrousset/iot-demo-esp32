@@ -1,0 +1,8 @@
+language: c
+os: linux
+install:
+ - sudo apt-get install git wget make libncurses-dev flex bison gperf python python-serial
+ - wget https://dl.espressif.com/dl/xtensa-esp32-elf-linux64-1.22.0-80-g6c4433a-5.2.0.tar.gz
+ - tar xvf xtensa-esp32-elf-linux64-1.22.0-80-g6c4433a-5.2.0.tar.gz
+ - git clone git@github.com:espressif/esp-idf.git
+ - cd esp-edf && got checkout release/v3
