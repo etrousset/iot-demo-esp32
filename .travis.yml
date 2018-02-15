@@ -5,4 +5,6 @@ install:
  - wget https://dl.espressif.com/dl/xtensa-esp32-elf-linux64-1.22.0-80-g6c4433a-5.2.0.tar.gz
  - tar xvf xtensa-esp32-elf-linux64-1.22.0-80-g6c4433a-5.2.0.tar.gz
  - git clone git@github.com:espressif/esp-idf.git
- - cd esp-edf && got checkout release/v3
+ - cd esp-edf && git checkout release/v3 && git submodule init && git submodule update
+
+script: cd k-multi-sensor && make -j8
