@@ -1,12 +1,9 @@
-#ifndef __BLE_KUZZLE_H
-#define __BLE_KUZZLE_H
+#ifndef __KUZZLE_BLE_PROTOCOL_H
+#define __KUZZLE_BLE_PROTOCOL_H
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include "esp_gap_ble_api.h"
-#include "esp_gatts_api.h"
-#include "esp_log.h"
 
 extern const uint8_t kuzzle_service_uuid128[];
 extern const uint8_t kuzzle_char_uuid128[];
@@ -15,7 +12,7 @@ typedef enum kuzzle_cmd_id {
     KUZ_CMD_SET_OWNER_RESERVED  = 0x00, //!< Set Kuzzle user id of the owner of the device
     KUZ_CMD_SET_OWNER_ID        = 0x01, //!< Set Kuzzle user id of the owner of the device
     KUZ_CMD_GET_OWNER_ID        = 0x02, //!< Get Kuzzle user id of the owner of the device
-    KUZ_CMD_GET_WIFI_SSID       = 0x10, //!< Read the Wifi SSID the device will connect to
+    KUZ_CMD_GET_WIFI_CREDS      = 0x10, //!< Read the Wifi SSID the device will connect to
     KUZ_CMD_SET_WIFI_CREDS      = 0x11, //!< Update both the Wifi SSID and password
     KUZ_CMD_SET_KUZZLE_SETTINGS = 0x12, //!< Set the hostname and the port on which to connect to Kuzzle
     KUZ_CMD_GET_KUZZLE_SETTINGS = 0x13, //!< Get the hostname and the port on which the device is connecting to Kuzzle
@@ -47,7 +44,7 @@ typedef struct kuz_owner_id {
                                              //! terminated string
 } __attribute__((packed)) kuz_owner_id_t;
 
-typedef struct __packed kuzzle_cmd {
+typedef struct kuzzle_cmd {
     kuzzle_cmd_id_t cmd_id : 8;
     union {
         kuz_wifi_credentials_t wifi_cred;
@@ -56,7 +53,4 @@ typedef struct __packed kuzzle_cmd {
     };
 } __attribute__((packed)) kuzzle_cmd_t;
 
-void kuzzle_ble_service_start(uint16_t app_id);
-void kuzzle_ble_gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t* param);
-
-#endif // __BLE_KUZZLE_H
+#endif // __KUZZLE_BLE_PROTOCOL_H

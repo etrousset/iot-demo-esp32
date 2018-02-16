@@ -24,6 +24,6 @@ float tept5700_v_to_lux(float Vrl, float temp)
     float i_ua = Vrl / _Rl * 1000000.f;
     float lux  = k * pow(i_ua, m);
 
-    ESP_LOGD(TAG, "Vrl = %fv, I = %fuA, L = %f lux", Vrl, i_ua, lux);
+//    ESP_LOGD(TAG, "Vrl = %fv, I = %fuA, L = %f lux", Vrl, i_ua, lux);
     return lux;
 }

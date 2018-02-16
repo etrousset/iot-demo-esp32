@@ -2,9 +2,18 @@ language: c
 os: linux
 install:
  - sudo apt-get install git wget make libncurses-dev flex bison gperf python python-serial
+ - cd $TRAVIS_BUILD_DIR
  - wget https://dl.espressif.com/dl/xtensa-esp32-elf-linux64-1.22.0-80-g6c4433a-5.2.0.tar.gz
- - tar xvf xtensa-esp32-elf-linux64-1.22.0-80-g6c4433a-5.2.0.tar.gz
- - git clone git@github.com:espressif/esp-idf.git
- - cd esp-edf && git checkout release/v3 && git submodule init && git submodule update
-
-script: cd k-multi-sensor && make -j8
+ - tar xf xtensa-esp32-elf-linux64-1.22.0-80-g6c4433a-5.2.0.tar.gz
+ - ls xtensa-esp32-elf
+ - git clone https://github.com/espressif/esp-idf
+ - cd esp-idf && git checkout origin/release/v3.0 && git submodule init && git submodule update && cd ..
+env:
+  global:
+   - PATH=$PATH:$TRAVIS_BUILD_DIR/xtensa-esp32-elf/bin
+   - IDF_PATH=$TRAVIS_BUILD_DIR/esp-idf
+script: 
+- cd $TRAVIS_BUILD_DIR
+- env
+- pwd 
+- cd k-multi-sensor && make -j8

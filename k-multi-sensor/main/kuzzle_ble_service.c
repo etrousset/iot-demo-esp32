@@ -1,6 +1,7 @@
-#include "ble_kuzzle.h"
+#include "kuzzle_ble_service.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "kuzzle_ble_protocol.h"
 #include "nvs.h"
 
 #include "device_settings.h"
@@ -26,6 +27,7 @@ typedef struct kuzzle_service_data {
     uint16_t           service_handle; /// handle to the service
     esp_gatt_srvc_id_t service_id;     /// id of the service
     uint16_t           kuzzle_char_handle;
+    esp_gatt_rsp_t     kuzzle_cmd_rsp;
 } kuzzle_service_data_t;
 
 static kuzzle_service_data_t _service = {.gatts_if = ESP_GATT_IF_NONE, 0};
@@ -132,13 +134,8 @@ void kuzzle_ble_gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t ga
                      param->read.trans_id,
                      param->read.handle);
             if (param->read.handle == _service.kuzzle_char_handle) {
-                esp_gatt_rsp_t rsp = {0};
-                rsp.attr_value.len = strlen("hello");
-                memcpy(rsp.attr_value.value, "hello", 5);
-                rsp.attr_value.handle = _service.kuzzle_char_handle;
-                rsp.attr_value.offset = 0;
-
-                esp_ble_gatts_send_response(_service.gatts_if, param->read.conn_id, param->read.trans_id, ESP_GATT_OK, &rsp);
+                esp_ble_gatts_send_response(
+                    _service.gatts_if, param->read.conn_id, param->read.trans_id, ESP_GATT_OK, &_service.kuzzle_cmd_rsp);
             }
             break;
         case ESP_GATTS_WRITE_EVT:
@@ -208,24 +205,46 @@ void kuzzle_ble_gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t ga
                         settings_load_kuzzle_settings(&settings);
                         kuzzle_cmd_t kuz_rsp = {.cmd_id = KUZ_CMD_GET_KUZZLE_SETTINGS};
 
-                        strcpy(kuz_rsp .kuzzle_settings.hostname, settings.host);
-                        kuz_rsp .kuzzle_settings.mqtt_port = settings.port;
+                        strcpy(kuz_rsp.kuzzle_settings.hostname, settings.host);
+                        kuz_rsp.kuzzle_settings.mqtt_port = settings.port;
 
-                        esp_gatt_rsp_t rsp;
-                        memset(&rsp, 0, sizeof(esp_gatt_rsp_t));
-                        rsp.attr_value.handle = param->write.handle;
+                        memset(&_service.kuzzle_cmd_rsp, 0, sizeof(esp_gatt_rsp_t));
+                        _service.kuzzle_cmd_rsp.attr_value.handle = param->write.handle;
 
-                        memcpy(rsp.attr_value.value, &kuz_rsp , sizeof(kuzzle_cmd_t));
-                        rsp.attr_value.len = sizeof(kuzzle_cmd_t);
+                        memcpy(_service.kuzzle_cmd_rsp.attr_value.value, &kuz_rsp, sizeof(kuzzle_cmd_t));
+                        _service.kuzzle_cmd_rsp.attr_value.len = sizeof(kuzzle_cmd_t);
 
-                        esp_ble_gatts_send_response(gatts_if, param->write.conn_id, param->write.trans_id, ESP_GATT_OK, &rsp);
-                }
+                        ESP_LOG_BUFFER_HEXDUMP(
+                            TAG, _service.kuzzle_cmd_rsp.attr_value.value, _service.kuzzle_cmd_rsp.attr_value.len, ESP_LOG_INFO);
+
+                        esp_ble_gatts_send_response(gatts_if, param->write.conn_id, param->write.trans_id, ESP_GATT_OK, NULL);
+                    }
 
                     break;
                     case KUZ_CMD_GET_OWNER_ID:
+
                         break;
-                    case KUZ_CMD_GET_WIFI_SSID:
-                        break;
+                    case KUZ_CMD_GET_WIFI_CREDS: {
+                        wifi_config_t wifi_config;
+                        settings_load_wifi_config(&wifi_config);
+                        kuzzle_cmd_t kuz_rsp = {.cmd_id = KUZ_CMD_GET_WIFI_CREDS};
+
+                        memset(&kuz_rsp.wifi_cred, 0, sizeof(kuz_rsp.wifi_cred));
+                        kuz_rsp.wifi_cred.ssid_len = strlen((char*)wifi_config.sta.ssid);
+                        memcpy(kuz_rsp.wifi_cred.credential, wifi_config.sta.ssid, kuz_rsp.wifi_cred.ssid_len);
+                        kuz_rsp.wifi_cred.pwd_len = strlen((char*)wifi_config.sta.password);
+                        memcpy(kuz_rsp.wifi_cred.credential+kuz_rsp.wifi_cred.ssid_len, wifi_config.sta.password, kuz_rsp.wifi_cred.pwd_len);
+
+                        memset(&_service.kuzzle_cmd_rsp, 0, sizeof(esp_gatt_rsp_t));
+                        _service.kuzzle_cmd_rsp.attr_value.handle = param->write.handle;
+                        memcpy(_service.kuzzle_cmd_rsp.attr_value.value, &kuz_rsp, sizeof(kuzzle_cmd_t));
+                        _service.kuzzle_cmd_rsp.attr_value.len = sizeof(kuzzle_cmd_t);
+
+                        ESP_LOG_BUFFER_HEXDUMP(
+                            TAG, _service.kuzzle_cmd_rsp.attr_value.value, _service.kuzzle_cmd_rsp.attr_value.len, ESP_LOG_INFO);
+
+                        esp_ble_gatts_send_response(gatts_if, param->write.conn_id, param->write.trans_id, ESP_GATT_OK, NULL);
+                    } break;
 
                     case KUZ_CMD_SET_OWNER_ID:
                         break;
