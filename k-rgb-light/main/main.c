@@ -313,8 +313,8 @@ void app_main(void)
 
     esp_wifi_get_mac(WIFI_MODE_STA, uid);
 
-    ESP_LOGI(TAG, "Connecting to Wifi AP: %s", CONFIG_WIFI_SSID);
-    wifi_config_t sta_config = {.sta = {.ssid = CONFIG_WIFI_SSID, .password = CONFIG_WIFI_PASSWORD, .bssid_set = false}};
+    ESP_LOGI(TAG, "Connecting to Wifi AP: %s", "my_wifi_ssid");
+    wifi_config_t sta_config = {.sta = {.ssid = "my_wifi_ssid", .password = "CONFIG_WIFI_PASSWORD", .bssid_set = false}};
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_config));
     ESP_ERROR_CHECK(esp_wifi_start());
     ESP_ERROR_CHECK(esp_wifi_connect());
