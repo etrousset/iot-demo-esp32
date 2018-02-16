@@ -13,7 +13,7 @@ env:
    - PATH=$PATH:$TRAVIS_BUILD_DIR/xtensa-esp32-elf/bin
    - IDF_PATH=$TRAVIS_BUILD_DIR/esp-idf
 script: 
-- tree $TRAVIS_BUILD_DIR -d
+- tree $TRAVIS_BUILD_DIR -d -L 2
 - cd $TRAVIS_BUILD_DIR
 - env
 - pwd 
