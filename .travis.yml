@@ -17,4 +17,4 @@ script:
 - cd $TRAVIS_BUILD_DIR
 - env
 - pwd 
-- cd k-multi-sensor && make -j8
+- cd k-multi-sensor && make V=1
