@@ -12,6 +12,11 @@ env:
   global:
     - PATH=$PATH:$TRAVIS_BUILD_DIR/xtensa-esp32-elf/bin
     - IDF_PATH=$TRAVIS_BUILD_DIR/esp-idf
-script: 
-  - cd $TRAVIS_BUILD_DIR
-  - cd k-multi-sensor && make
+
+jobs:
+  include:
+    - stage: Build k-multi-sensor
+      script: 
+        - cd $TRAVIS_BUILD_DIR
+        - cd k-multi-sensor && make -j
+      
